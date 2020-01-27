@@ -1,0 +1,209 @@
+# Solving Decision Trees in R
+
+
+## Installing the required packages. 
+### If the packages are already installed then only load the packages
+
+
+
+install.packages("rpart")
+install.packages("ctree")
+install.packages("dplyr")
+install.packages("rattle")
+install.packages("rpart.plot")
+install.packages("RColorBrewer")
+install.packages("RGtk2")
+install.packages("ROCR")
+
+library(rpart)
+library(dplyr)
+library(rattle)
+library(rpart.plot)
+library(RColorBrewer)
+library(ROCR)
+
+
+
+## Step 1 - Importing Data
+
+loan_data <- read.csv(file.choose(),header=T)
+names(loan_data)
+
+#structure of the data
+
+str(loan_data)
+
+#sample data
+head(loan_data,n=2)
+
+#names
+names(loan_data)
+
+#summary
+summary(loan_data)
+
+
+
+#Stepn 3 - Getting the data in the right format. 
+### reformatting the variable and creating test and control group
+
+
+
+# Make dependent variable as a factor (categorical)
+dt3$y = as.factor(dt3$y)
+
+View(loan_data)
+
+## Split data into training (70%) and validation (30%)
+dt1 = sort(sample(nrow(dt3), nrow(dt3)*.7))
+train<-dt[dt1,]
+val<-dt[-dt1,] 
+nrow(train)
+nrow(val)
+
+# To view dataset
+
+head(train)
+
+
+
+#Step 4- Running decision treess. We will use the rpart function in the rpart package
+
+
+# For the rpart function there are default values for minsplit, maxdepth and cp. It is advisable to provide your own values so that the decision tree does not provide rogue results. Please check ?rpart.default for default values
+
+
+
+# Decision Tree Base Model
+library(rpart)
+tree_base_model <- rpart(y~., data = train, method="class")
+
+
+#Plot
+rattle()
+fancyRpartPlot(tree_base_model)
+prp(tree_base_model,yesno=2)
+plot(tree_base_model)
+text(tree_base_model)
+
+# Compute the accuracy of the base tree
+val$pred <- predict(tree_base_model, val, type = "class")
+base_accuracy <- mean(val$pred == val$y)
+
+mean((val$pred == val$y))
+
+
+# Checking the accuracy
+base_accuracy
+
+#Step 5- Pruning decision treess. Pre processing and post processing
+
+# Pre Prunning of the tree
+library(rpart)
+
+colnames(train)
+
+tree_preprocess_model <- rpart(y~., data = train, method="class", control = rpart.control(minsplit = 1, minbucket = 1, maxdepth = 30,mindepth=10, usesurrogate = 1, xval =10,cp=0.001))
+
+#Plot
+fancyRpartPlot(tree_preprocess_model)
+prp(tree_preprocess_model)
+
+# Compute the accuracy of the pruned tree
+val$pred <- predict(tree_preprocess_model, val, type = "class")
+preprocess_accuracy <- mean(val$pred == val$y)
+
+# Checking the accuracy
+preprocess_accuracy
+
+# Pre Pruning of the tree..making the tree more granular. Let's see what if overfitting
+library(rpart)
+tree_preprocess_model <- rpart(Creditability~., data = train, method="class", control = rpart.control(minsplit = 4, minbucket = 1, maxdepth = 20, cp=0, usesurrogate = 2, xval =10 ))
+
+# Compute the accuracy of the overfit tree
+val$pred <- predict(tree_preprocess_model, val, type = "class")
+preprocess_accuracy <- mean(val$pred == val$Creditability)
+
+# Checking the accuracy of overfit treee 
+preprocess_accuracy
+
+
+# Prune the tree using the best cp.
+
+bestcp <- tree_base_model$cptable[which.min(tree_base_model$cptable[,"xerror"]),"CP"]
+
+
+tree_postprocess_model <- prune(tree_base_model, cp = bestcp)
+
+?prune
+
+#Plot
+fancyRpartPlot(tree_postprocess_model)
+
+
+# Compute the accuracy of the pruned tree
+val$pred <- predict(tree_postprocess_model, val, type = "class")
+postprocess_accuracy <- mean(val$pred == val$Creditability)
+
+# Checking the accuracy
+postprocess_accuracy
+
+
+data.frame(base_accuracy, preprocess_accuracy, postprocess_accuracy)
+
+
+
+## Detailed evaluation of the model using ROC Charts
+
+
+
+# confusion matrix (training data)
+conf.matrix <- table(train$Creditability, predict(tree_postprocess_model,type="class"))
+rownames(conf.matrix) <- paste("Actual", rownames(conf.matrix), sep = ":")
+colnames(conf.matrix) <- paste("Pred", colnames(conf.matrix), sep = ":")
+print(conf.matrix)
+
+
+# confusion matrix (test data)
+conf.matrix <- table(val$Creditability, predict(tree_postprocess_model,val,type="class"))
+rownames(conf.matrix) <- paste("Actual", rownames(conf.matrix), sep = ":")
+colnames(conf.matrix) <- paste("Pred", colnames(conf.matrix), sep = ":")
+print(conf.matrix)
+
+#Scoring
+library(ROCR)
+val1 = predict(tree_postprocess_model, val, type = "prob")
+#Storing Model Performance Scores
+pred_val <-prediction(val1[,2],val$Creditability)
+
+# Calculating Area under Curve
+perf_val <- performance(pred_val,"auc")
+perf_val
+
+# Calculating True Positive and False Positive Rate
+perf_val <- performance(pred_val, "tpr", "fpr")
+
+# Plot the ROC curve
+plot(perf_val, col = "green", lwd = 1.5)
+
+# Plotting Lift curve
+plot(performance(pred_val, measure="lift", x.measure="rpp"))
+#Beautify tree
+library(rattle)
+library(rpart.plot)
+library(RColorBrewer)
+
+#view1
+
+prp(tree_postprocess_model, faclen = 0, cex = 0.8, extra = 1)
+
+#view2 - total count at each node
+
+tot_count <- function(x, labs, digits, varlen)
+{paste(labs, "/n/nn =", x$frame$n)}
+
+prp(tree_postprocess_model, faclen = 0, cex = 0.8, node.fun=tot_count)
+
+#view3- fancy Plot
+
+fancyRpartPlot(tree_postprocess_model)
